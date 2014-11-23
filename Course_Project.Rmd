@@ -1,0 +1,102 @@
+---
+title: "Wearable Movement Analysis"
+author: "William Chan"
+date: "Saturday, November 22, 2014"
+output: word_document
+---
+
+#Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.  
+
+The main task for this prediction project is to develop a statistical model to predict the following 5 classes of action:
+
+##exactly according to the specification (A)
+##throwing elbows to the front (B)
+##lifting the dumbbell only halfway (C)
+##lowering the dumbbell only halfway (D)
+##throwing the hips to the front (E)
+
+More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+#Data
+
+The training data can be found at https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+While the test data is located at https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r data, echo=TRUE}
+training <- read.csv("pml-training.csv", na.strings=c("", "NA"))
+testing <- read.csv("pml-testing.csv", na.strings=c("", "NA"))
+```
+
+The first column is index within the dataset, so we will remove it since it is not a predictor.
+
+```{r index, echo=TRUE}
+training$X <- NULL
+```
+
+In the process of anonymize the data with irrelevant dimension like the user name and the timestamp.
+
+```{r anonymize, echo=TRUE}
+remove_cols <- c("user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp")
+for(col in remove_cols) {
+                training[, col] <- NULL
+}
+```
+
+Furthermore, there is a lot of missing data within the variables. We can remove the dimension from the train and test dataset with too many missing values.
+
+```{r missing, echo=TRUE}
+missing <- apply(training, 2, function(x) {sum(is.na(x))})
+training <- training[, which(missing == 0)]
+```
+
+Upon further investigation of the activity data, the data appear to have value close to zero which will be remove using the near zero variance with the caret package.
+
+```{r near_zero, echo=TRUE}
+library(caret)
+nsv <- nearZeroVar(training)
+training <- training[-nsv]
+testing <- testing[-nsv]
+```
+
+After cleaning the dataset, the final set of predictors used to build the classification algorithm are:
+
+```{r tidy_data, echo=TRUE}
+names(training)
+```
+
+#Model Building
+
+In building the predictive model, the classification method of random forest will be used to predict the activity class. In order to measure the model accuracy, a 10-fold K cross validation with 80:20 split will be implemented. The 80% of the data will be used for training while the remaining 20% will be used to test the model.
+
+```{r model, echo=TRUE}
+library(randomForest)
+set.seed(1234)
+obs <- c()
+preds <- c()
+for(i in 1:10) {
+        inTrain = sample(1:dim(training)[1], size=dim(training)[1] * 0.8, replace=F)
+        train_cross = training[inTrain,]
+        test_cross = training[-inTrain,]
+        rf <- randomForest(classe ~., data=train_cross)
+        obs <- c(obs, test_cross$classe)
+        preds <- c(preds, predict(rf, test_cross))
+}
+```
+
+To measure the accuracy of the model, a confusion matrix was created based on the random forest classification results.
+
+```{r matrix, echo=TRUE}
+conf_mat <- confusionMatrix(table(preds, obs))
+conf_mat$table
+```
+
+The random forest model appears to provide a good classification for the 5 classes of actions. the accuracy is `r round(conf_mat$overall[[1]] * 100, digits=2)`% and it only missed classified 86 cases. Then we can use the training model to predict the whole dataset given the activity measurements.
+
+```{r final, echo=TRUE}
+final_model <- randomForest(classe~., data=training)
+```
+
+#References
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. <http://groupware.les.inf.puc-rio.br/har#ixzz3Jr74bA7g>
